@@ -6,6 +6,7 @@
 <title>Location Check — GPS vs IP</title>
 <meta name="description" content="Compare what your browser GPS reports vs what your IP address reports. Detect location spoofing mismatches.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   :root{
     --bg:#0d1117;
@@ -56,6 +57,41 @@
   @keyframes spin{to{transform:rotate(360deg);}}
   .tip-box{background:rgba(227,179,65,0.08);border:1px solid var(--warn);border-radius:8px;padding:10px 14px;margin-top:10px;font-size:0.82rem;display:none;}
   .tip-box.show{display:block;}
+  #mapContainer{
+    margin-top:16px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    overflow:hidden;
+    background:var(--card);
+    display:none;
+  }
+  #mapContainer.show{display:block;}
+  #map{
+    width:100%;
+    height:380px;
+  }
+  .map-legend{
+    display:flex;
+    gap:16px;
+    padding:8px 14px;
+    font-size:0.78rem;
+    color:var(--muted);
+    border-top:1px solid var(--border);
+  }
+  .map-legend span{display:flex;align-items:center;gap:6px;}
+  .legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+  .legend-dot.gps-leg{background:var(--good);box-shadow:0 0 6px var(--good);}
+  .legend-dot.ip-leg{background:var(--accent);box-shadow:0 0 6px var(--accent);}
+  .distance-badge{
+    display:inline-block;
+    background:rgba(57,208,216,0.1);
+    border:1px solid var(--accent);
+    border-radius:4px;
+    padding:2px 8px;
+    font-size:0.78rem;
+    color:var(--accent);
+    margin-left:8px;
+  }
 </style>
 </head>
 <body>
@@ -91,6 +127,15 @@
 
 <div class="status pending" id="statusBox">Checking both sources…</div>
 
+<div id="mapContainer">
+  <div id="map"></div>
+  <div class="map-legend">
+    <span><span class="legend-dot gps-leg"></span> GPS location</span>
+    <span><span class="legend-dot ip-leg"></span> IP location</span>
+    <span id="distanceLabel" style="margin-left:auto;"></span>
+  </div>
+</div>
+
 <button onclick="location.reload()">Re-check</button>
 
 <div class="note">
@@ -99,189 +144,8 @@
   If a mock-location app and a VPN aren't pointed at the same country, this page will usually catch the mismatch.
 </div>
 
-<script>
-(function(){
-var gpsDot = document.getElementById('gpsDot');
-var ipDot = document.getElementById('ipDot');
-var statusBox = document.getElementById('statusBox');
-var gpsBtn = document.getElementById('gpsBtn');
-var gpsError = document.getElementById('gpsError');
-var gpsStatus = document.getElementById('gpsStatus');
-var gpsTip = document.getElementById('gpsTip');
-
-var gpsCountry = null;
-var ipCountry = null;
-var gpsDone = false;
-var ipDone = false;
-var gpsTimer = null;
-var gpsStartTime = 0;
-
-function updateTimer(){
-  if(gpsDone) return;
-  var elapsed = Math.floor((Date.now() - gpsStartTime) / 1000);
-  gpsStatus.innerHTML = '<span class="spinner"></span>Waiting for GPS fix… ' + elapsed + 's elapsed';
-  if(elapsed > 10 && gpsTip.className.indexOf('show') === -1){
-    gpsTip.className = 'tip-box show';
-  }
-  gpsTimer = setTimeout(updateTimer, 1000);
-}
-
-function stopTimer(){
-  if(gpsTimer){ clearTimeout(gpsTimer); gpsTimer = null; }
-  gpsStatus.textContent = '';
-  gpsTip.className = 'tip-box';
-}
-
-function checkMatch(){
-  if(!gpsDone || !ipDone) return;
-  if(gpsCountry === null || ipCountry === null){
-    statusBox.className = 'status pending';
-    statusBox.textContent = "Couldn't fully compare — one of the sources failed.";
-    return;
-  }
-  if(gpsCountry.toLowerCase() === ipCountry.toLowerCase()){
-    statusBox.className = 'status match';
-    statusBox.textContent = '\u2713 GPS and IP both point to ' + gpsCountry + ". They're in sync.";
-  } else {
-    statusBox.className = 'status mismatch';
-    statusBox.textContent = '\u26a0 Mismatch \u2014 GPS says ' + gpsCountry + ', IP says ' + ipCountry + '.';
-  }
-}
-
-function gpsSuccess(pos){
-  stopTimer();
-  var lat = pos.coords.latitude;
-  var lng = pos.coords.longitude;
-  var acc = pos.coords.accuracy;
-  document.getElementById('gpsLat').textContent = lat.toFixed(6);
-  document.getElementById('gpsLng').textContent = lng.toFixed(6);
-  document.getElementById('gpsAcc').textContent = '\u00b1' + Math.round(acc) + ' m';
-  gpsDot.className = 'dot ok';
-  gpsError.className = 'gps-error';
-  gpsBtn.style.display = 'none';
-  gpsTip.className = 'tip-box';
-
-  fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json')
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var addr = d.address || {};
-      document.getElementById('gpsAddr').textContent =
-        [addr.city || addr.town || addr.village, addr.state, addr.country].filter(Boolean).join(', ') || 'Unknown';
-      gpsCountry = addr.country || null;
-      gpsDone = true;
-      checkMatch();
-    })
-    .catch(function(){
-      document.getElementById('gpsAddr').textContent = 'Reverse lookup failed';
-      gpsCountry = null;
-      gpsDone = true;
-      checkMatch();
-    });
-}
-
-function gpsFail(err){
-  stopTimer();
-  var msg;
-  if(err.code === 1) msg = 'Permission denied. Check that location permission is granted for this browser.';
-  else if(err.code === 2) msg = 'Position unavailable. Is GPS/location turned on in your phone settings?';
-  else if(err.code === 3) msg = 'GPS timed out. Huawei devices need clear sky — try outdoors or near a window.';
-  else msg = 'Unknown error (code ' + err.code + ').';
-  gpsError.textContent = msg;
-  gpsError.className = 'gps-error show';
-  gpsDot.className = 'dot err';
-  gpsBtn.style.display = 'block';
-  gpsTip.className = 'tip-box show';
-  document.getElementById('gpsAddr').textContent = 'Not available';
-  gpsCountry = null;
-  gpsDone = true;
-  checkMatch();
-}
-
-function requestGps(){
-  stopTimer();
-  gpsError.className = 'gps-error';
-  gpsBtn.style.display = 'none';
-  gpsTip.className = 'tip-box';
-  document.getElementById('gpsLat').textContent = '\u2026';
-  document.getElementById('gpsLng').textContent = '\u2026';
-  document.getElementById('gpsAcc').textContent = '\u2026';
-  document.getElementById('gpsAddr').textContent = '\u2026';
-  gpsDot.className = 'dot loading';
-  gpsDone = false;
-  statusBox.className = 'status pending';
-  statusBox.textContent = 'Requesting GPS\u2026';
-  gpsStartTime = Date.now();
-  updateTimer();
-
-  // Try cached position first (maximumAge: Infinity — accept any age)
-  navigator.geolocation.getCurrentPosition(
-    function(pos){
-      gpsSuccess(pos);
-    },
-    function(){
-      // No cached position — try fresh, low accuracy, long timeout
-      gpsStatus.innerHTML = '<span class="spinner"></span>No cached position. Looking for satellites\u2026';
-      navigator.geolocation.getCurrentPosition(
-        gpsSuccess,
-        gpsFail,
-        { enableHighAccuracy: false, timeout: 120000, maximumAge: 0 }
-      );
-    },
-    { enableHighAccuracy: false, timeout: 10000, maximumAge: Infinity }
-  );
-}
-
-// Initial attempt
-if(!navigator.geolocation){
-  gpsDot.className = 'dot err';
-  gpsError.textContent = 'Geolocation not supported by this browser.';
-  gpsError.className = 'gps-error show';
-  gpsDone = true;
-} else {
-  gpsStartTime = Date.now();
-  updateTimer();
-
-  // Try cached position first
-  navigator.geolocation.getCurrentPosition(
-    function(pos){
-      gpsSuccess(pos);
-    },
-    function(){
-      // No cache — try fresh low accuracy with long timeout
-      navigator.geolocation.getCurrentPosition(
-        gpsSuccess,
-        gpsFail,
-        { enableHighAccuracy: false, timeout: 120000, maximumAge: 0 }
-      );
-    },
-    { enableHighAccuracy: false, timeout: 10000, maximumAge: Infinity }
-  );
-}
-
-// IP lookup
-fetch('https://ipapi.co/json/')
-  .then(function(r){ return r.json(); })
-  .then(function(d){
-    document.getElementById('ipAddr').textContent = d.ip || '\u2014';
-    document.getElementById('ipCity').textContent = d.city || '\u2014';
-    document.getElementById('ipRegion').textContent = d.region || '\u2014';
-    document.getElementById('ipCountry').textContent = d.country_name || '\u2014';
-    document.getElementById('ipLatLon').textContent = (d.latitude && d.longitude) ? (d.latitude + ', ' + d.longitude) : '\u2014';
-    document.getElementById('ipOrg').textContent = d.org || '\u2014';
-    ipDot.className = 'dot ok';
-    ipCountry = d.country_name || null;
-    ipDone = true;
-    checkMatch();
-  })
-  .catch(function(){
-    ipDot.className = 'dot err';
-    document.getElementById('ipAddr').textContent = 'Lookup failed';
-    ipDone = true;
-    checkMatch();
-  });
-
-})();
-</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>/script>
 
 </body>
 </html>
