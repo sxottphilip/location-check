@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Location Check — GPS vs IP</title>
+<meta name="description" content="Compare what your browser GPS reports vs what your IP address reports. Detect location spoofing mismatches.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  :root{
+    --bg:#0d1117;
+    --card:#161b22;
+    --border:#2a2f38;
+    --text:#e6edf3;
+    --muted:#8b949e;
+    --accent:#39d0d8;
+    --warn:#e3b341;
+    --bad:#f85149;
+    --good:#3fb950;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    padding:20px 16px 60px;
+  }
+  h1{
+    font-size:1.3rem;
+    margin:0 0 4px;
+  }
+  .sub{
+    color:var(--muted);
+    font-size:0.85rem;
+    margin-bottom:20px;
+  }
+  .grid{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:16px;
+  }
+  @media(min-width:640px){
+    .grid{grid-template-columns:1fr 1fr;}
+  }
+  .card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:16px;
+  }
+  .card h2{
+    font-size:1rem;
+    margin:0 0 12px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .dot{
+    width:8px;height:8px;border-radius:50%;
+    background:var(--muted);
+    flex-shrink:0;
+  }
+  .dot.ok{background:var(--good);}
+  .dot.err{background:var(--bad);}
+  .dot.loading{background:var(--warn);animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+  .row{
+    display:flex;
+    justify-content:space-between;
+    gap:8px;
+    padding:8px 0;
+    border-bottom:1px solid var(--border);
+    font-size:0.88rem;
+  }
+  .row:last-child{border-bottom:none;}
+  .label{color:var(--muted);flex-shrink:0;}
+  .value{
+    text-align:right;
+    word-break:break-word;
+    font-family:ui-monospace,Menlo,monospace;
+    font-size:0.85rem;
+  }
+  .status{
+    margin-top:20px;
+    padding:14px;
+    border-radius:12px;
+    font-size:0.9rem;
+    border:1px solid var(--border);
+  }
+  .status.match{border-color:var(--good);background:rgba(63,185,80,0.08);}
+  .status.mismatch{border-color:var(--bad);background:rgba(248,81,73,0.08);}
+  .status.pending{color:var(--muted);}
+  button{
+    background:var(--accent);
+    color:#04262a;
+    border:none;
+    padding:10px 16px;
+    border-radius:8px;
+    font-weight:600;
+    font-size:0.9rem;
+    margin-top:16px;
+    width:100%;
+  }
+  a{color:var(--accent);}
+  .note{color:var(--muted);font-size:0.78rem;margin-top:20px;line-height:1.4;}
+</style>
+</head>
+<body>
+
+<h1>Location Check</h1>
+<div class="sub">Compares what your GPS reports vs what your IP reports</div>
+
+<div class="grid">
+  <div class="card">
+    <h2><span class="dot loading" id="gpsDot"></span>GPS (browser geolocation)</h2>
+    <div class="row"><span class="label">Latitude</span><span class="value" id="gpsLat">—</span></div>
+    <div class="row"><span class="label">Longitude</span><span class="value" id="gpsLng">—</span></div>
+    <div class="row"><span class="label">Accuracy</span><span class="value" id="gpsAcc">—</span></div>
+    <div class="row"><span class="label">City / area</span><span class="value" id="gpsAddr">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot loading" id="ipDot"></span>IP address</h2>
+    <div class="row"><span class="label">IP</span><span class="value" id="ipAddr">—</span></div>
+    <div class="row"><span class="label">City</span><span class="value" id="ipCity">—</span></div>
+    <div class="row"><span class="label">Region</span><span class="value" id="ipRegion">—</span></div>
+    <div class="row"><span class="label">Country</span><span class="value" id="ipCountry">—</span></div>
+    <div class="row"><span class="label">ISP / org</span><span class="value" id="ipOrg">—</span></div>
+  </div>
+</div>
+
+<div class="status pending" id="statusBox">Checking both sources…</div>
+
+<button onclick="location.reload()">Re-check</button>
+
+<div class="note">
+  GPS comes from <code>navigator.geolocation</code> — the same thing a mock-location app overrides.
+  IP location comes from a public IP-lookup API — the same thing a VPN changes.
+  If a mock-location app and a VPN aren't pointed at the same country, this page will usually catch the mismatch.
+</div>
+
+<script>
+const gpsDot = document.getElementById('gpsDot');
+const ipDot = document.getElementById('ipDot');
+const statusBox = document.getElementById('statusBox');
+
+let gpsCountry = null;
+let ipCountry = null;
+
+function checkMatch(){
+  if(gpsCountry === null || ipCountry === null) return;
+  if(gpsCountry === 'error' || ipCountry === 'error'){
+    statusBox.className = 'status pending';
+    statusBox.textContent = "Couldn't fully compare — one of the sources failed.";
+    return;
+  }
+  if(gpsCountry.toLowerCase() === ipCountry.toLowerCase()){
+    statusBox.className = 'status match';
+    statusBox.textContent = `✓ GPS and IP both point to ${gpsCountry}. They're in sync.`;
+  } else {
+    statusBox.className = 'status mismatch';
+    statusBox.textContent = `⚠ Mismatch — GPS says ${gpsCountry}, IP says ${ipCountry}.`;
+  }
+}
+
+// --- GPS ---
+if('geolocation' in navigator){
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const { latitude, longitude, accuracy } = pos.coords;
+    document.getElementById('gpsLat').textContent = latitude.toFixed(6);
+    document.getElementById('gpsLng').textContent = longitude.toFixed(6);
+    document.getElementById('gpsAcc').textContent = `±${Math.round(accuracy)} m`;
+    gpsDot.className = 'dot ok';
+
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`);
+      const d = await r.json();
+      const addr = d.address || {};
+      document.getElementById('gpsAddr').textContent =
+        [addr.city || addr.town || addr.village, addr.state, addr.country].filter(Boolean).join(', ') || 'Unknown';
+      gpsCountry = addr.country || 'error';
+    } catch(e){
+      document.getElementById('gpsAddr').textContent = 'Lookup failed';
+      gpsCountry = 'error';
+    }
+    checkMatch();
+  }, err => {
+    gpsDot.className = 'dot err';
+    document.getElementById('gpsAddr').textContent = 'Permission denied or unavailable';
+    gpsCountry = 'error';
+    checkMatch();
+  }, { enableHighAccuracy: true, timeout: 10000 });
+} else {
+  gpsDot.className = 'dot err';
+  gpsCountry = 'error';
+}
+
+// --- IP ---
+fetch('https://ipapi.co/json/')
+  .then(r => r.json())
+  .then(d => {
+    document.getElementById('ipAddr').textContent = d.ip || '—';
+    document.getElementById('ipCity').textContent = d.city || '—';
+    document.getElementById('ipRegion').textContent = d.region || '—';
+    document.getElementById('ipCountry').textContent = d.country_name || '—';
+    document.getElementById('ipOrg').textContent = d.org || '—';
+    ipDot.className = 'dot ok';
+    ipCountry = d.country_name || 'error';
+    checkMatch();
+  })
+  .catch(() => {
+    ipDot.className = 'dot err';
+    document.getElementById('ipAddr').textContent = 'Lookup failed';
+    ipCountry = 'error';
+    checkMatch();
+  });
+</script>
+
+</body>
+</html>
