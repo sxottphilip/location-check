@@ -26,88 +26,34 @@
     color:var(--text);
     padding:20px 16px 60px;
   }
-  h1{
-    font-size:1.3rem;
-    margin:0 0 4px;
-  }
-  .sub{
-    color:var(--muted);
-    font-size:0.85rem;
-    margin-bottom:20px;
-  }
-  .grid{
-    display:grid;
-    grid-template-columns:1fr;
-    gap:16px;
-  }
-  @media(min-width:640px){
-    .grid{grid-template-columns:1fr 1fr;}
-  }
-  .card{
-    background:var(--card);
-    border:1px solid var(--border);
-    border-radius:12px;
-    padding:16px;
-  }
-  .card h2{
-    font-size:1rem;
-    margin:0 0 12px;
-    display:flex;
-    align-items:center;
-    gap:8px;
-  }
-  .dot{
-    width:8px;height:8px;border-radius:50%;
-    background:var(--muted);
-    flex-shrink:0;
-  }
+  h1{font-size:1.3rem;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:0.85rem;margin-bottom:20px;}
+  .grid{display:grid;grid-template-columns:1fr;gap:16px;}
+  @media(min-width:640px){.grid{grid-template-columns:1fr 1fr;}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;}
+  .card h2{font-size:1rem;margin:0 0 12px;display:flex;align-items:center;gap:8px;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;}
   .dot.ok{background:var(--good);}
   .dot.err{background:var(--bad);}
   .dot.loading{background:var(--warn);animation:pulse 1s infinite;}
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
-  .row{
-    display:flex;
-    justify-content:space-between;
-    gap:8px;
-    padding:8px 0;
-    border-bottom:1px solid var(--border);
-    font-size:0.88rem;
-  }
+  .row{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:0.88rem;}
   .row:last-child{border-bottom:none;}
   .label{color:var(--muted);flex-shrink:0;}
-  .value{
-    text-align:right;
-    word-break:break-word;
-    font-family:ui-monospace,Menlo,monospace;
-    font-size:0.85rem;
-  }
-  .status{
-    margin-top:20px;
-    padding:14px;
-    border-radius:12px;
-    font-size:0.9rem;
-    border:1px solid var(--border);
-  }
+  .value{text-align:right;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:0.85rem;}
+  .status{margin-top:20px;padding:14px;border-radius:12px;font-size:0.9rem;border:1px solid var(--border);}
   .status.match{border-color:var(--good);background:rgba(63,185,80,0.08);}
   .status.mismatch{border-color:var(--bad);background:rgba(248,81,73,0.08);}
   .status.pending{color:var(--muted);}
-  button{
-    background:var(--accent);
-    color:#04262a;
-    border:none;
-    padding:10px 16px;
-    border-radius:8px;
-    font-weight:600;
-    font-size:0.9rem;
-    margin-top:12px;
-    width:100%;
-    cursor:pointer;
-  }
+  button{background:var(--accent);color:#04262a;border:none;padding:10px 16px;border-radius:8px;font-weight:600;font-size:0.9rem;margin-top:12px;width:100%;cursor:pointer;}
   button:hover{opacity:0.9;}
+  button.small{font-size:0.8rem;padding:8px 12px;margin-top:8px;width:auto;}
   .btn-row{display:flex;gap:10px;}
   .btn-row button{flex:1;}
   a{color:var(--accent);}
   .note{color:var(--muted);font-size:0.78rem;margin-top:20px;line-height:1.4;}
+  .gps-error{color:var(--bad);font-size:0.82rem;margin-top:8px;display:none;}
+  .gps-error.show{display:block;}
 </style>
 </head>
 <body>
@@ -122,6 +68,8 @@
     <div class="row"><span class="label">Longitude</span><span class="value" id="gpsLng">—</span></div>
     <div class="row"><span class="label">Accuracy</span><span class="value" id="gpsAcc">—</span></div>
     <div class="row"><span class="label">City / area</span><span class="value" id="gpsAddr">—</span></div>
+    <div class="gps-error" id="gpsError"></div>
+    <button id="gpsBtn" onclick="requestGps()" style="display:none;">Request GPS</button>
   </div>
 
   <div class="card">
@@ -147,138 +95,154 @@
 </div>
 
 <script>
-const gpsDot = document.getElementById('gpsDot');
-const ipDot = document.getElementById('ipDot');
-const statusBox = document.getElementById('statusBox');
-const gpsCard = document.getElementById('gpsCard');
+(function(){
+var gpsDot = document.getElementById('gpsDot');
+var ipDot = document.getElementById('ipDot');
+var statusBox = document.getElementById('statusBox');
+var gpsCard = document.getElementById('gpsCard');
+var gpsBtn = document.getElementById('gpsBtn');
+var gpsError = document.getElementById('gpsError');
 
-let gpsCountry = null;
-let ipCountry = null;
+var gpsCountry = null;
+var ipCountry = null;
+var gpsDone = false;
+var ipDone = false;
 
 function checkMatch(){
-  if(gpsCountry === null || ipCountry === null) return;
-  if(gpsCountry === 'error' || ipCountry === 'error'){
+  if(!gpsDone || !ipDone) return;
+  if(gpsCountry === null || ipCountry === null){
     statusBox.className = 'status pending';
     statusBox.textContent = "Couldn't fully compare — one of the sources failed.";
     return;
   }
   if(gpsCountry.toLowerCase() === ipCountry.toLowerCase()){
     statusBox.className = 'status match';
-    statusBox.textContent = '\u2713 GPS and IP both point to ' + gpsCountry + '. They\'re in sync.';
+    statusBox.textContent = '✓ GPS and IP both point to ' + gpsCountry + ". They're in sync.";
   } else {
     statusBox.className = 'status mismatch';
-    statusBox.textContent = '\u26a0 Mismatch \u2014 GPS says ' + gpsCountry + ', IP says ' + ipCountry + '.';
+    statusBox.textContent = '⚠ Mismatch — GPS says ' + gpsCountry + ', IP says ' + ipCountry + '.';
   }
 }
 
-function showGpsError(msg){
+function setGpsError(msg){
+  gpsError.textContent = msg;
+  gpsError.className = 'gps-error show';
   gpsDot.className = 'dot err';
-  document.getElementById('gpsAddr').innerHTML = msg + '<br><small style="color:var(--muted)">Tap <b>Request GPS</b> below to try again</small>';
-  gpsCountry = 'error';
+  gpsBtn.style.display = 'block';
+  document.getElementById('gpsAddr').textContent = 'Not available';
+  gpsCountry = null;
+  gpsDone = true;
   checkMatch();
 }
 
 function requestGps(){
   gpsDot.className = 'dot loading';
-  document.getElementById('gpsLat').textContent = '\u2014';
-  document.getElementById('gpsLng').textContent = '\u2014';
-  document.getElementById('gpsAcc').textContent = '\u2014';
-  document.getElementById('gpsAddr').textContent = '\u2014';
-  gpsCountry = null;
+  gpsError.className = 'gps-error';
+  gpsBtn.style.display = 'none';
+  document.getElementById('gpsLat').textContent = '…';
+  document.getElementById('gpsLng').textContent = '…';
+  document.getElementById('gpsAcc').textContent = '…';
+  document.getElementById('gpsAddr').textContent = '…';
+  gpsDone = false;
   statusBox.className = 'status pending';
-  statusBox.textContent = 'Requesting GPS\u2026';
+  statusBox.textContent = 'Requesting GPS…';
 
-  navigator.geolocation.getCurrentPosition(async function(pos){
+  navigator.geolocation.getCurrentPosition(function(pos){
     var lat = pos.coords.latitude;
     var lng = pos.coords.longitude;
     var acc = pos.coords.accuracy;
     document.getElementById('gpsLat').textContent = lat.toFixed(6);
     document.getElementById('gpsLng').textContent = lng.toFixed(6);
-    document.getElementById('gpsAcc').textContent = '\u00b1' + Math.round(acc) + ' m';
+    document.getElementById('gpsAcc').textContent = '±' + Math.round(acc) + ' m';
     gpsDot.className = 'dot ok';
-    try {
-      var r = await fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json');
-      var d = await r.json();
-      var addr = d.address || {};
-      document.getElementById('gpsAddr').textContent =
-        [addr.city || addr.town || addr.village, addr.state, addr.country].filter(Boolean).join(', ') || 'Unknown';
-      gpsCountry = addr.country || 'error';
-    } catch(e){
-      document.getElementById('gpsAddr').textContent = 'Reverse lookup failed';
-      gpsCountry = 'error';
-    }
-    checkMatch();
-    var btn = document.getElementById('gpsBtn');
-    if(btn) btn.remove();
+    gpsError.className = 'gps-error';
+    gpsBtn.style.display = 'none';
+
+    fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var addr = d.address || {};
+        document.getElementById('gpsAddr').textContent =
+          [addr.city || addr.town || addr.village, addr.state, addr.country].filter(Boolean).join(', ') || 'Unknown';
+        gpsCountry = addr.country || null;
+        gpsDone = true;
+        checkMatch();
+      })
+      .catch(function(){
+        document.getElementById('gpsAddr').textContent = 'Reverse lookup failed';
+        gpsDone = true;
+        checkMatch();
+      });
   }, function(err){
     var msg;
-    if(err.code === 1) msg = 'Permission denied — allow location access in your browser settings';
-    else if(err.code === 2) msg = 'Position unavailable — check your device GPS';
-    else if(err.code === 3) msg = 'Request timed out — try again';
-    else msg = 'Unknown error';
-    showGpsError(msg);
-  }, { enableHighAccuracy: true, timeout: 15000 });
+    if(err.code === 1) msg = 'Permission denied. Click Request GPS and allow location access when prompted.';
+    else if(err.code === 2) msg = 'Position unavailable. Your device may not have GPS hardware, or location services are off.';
+    else if(err.code === 3) msg = 'Request timed out. Try again.';
+    else msg = 'Unknown error (code ' + err.code + ').';
+    setGpsError(msg);
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 
-// --- first GPS attempt ---
-if('geolocation' in navigator){
-  navigator.geolocation.getCurrentPosition(async function(pos){
-    var lat = pos.coords.latitude;
-    var lng = pos.coords.longitude;
-    var acc = pos.coords.accuracy;
-    document.getElementById('gpsLat').textContent = lat.toFixed(6);
-    document.getElementById('gpsLng').textContent = lng.toFixed(6);
-    document.getElementById('gpsAcc').textContent = '\u00b1' + Math.round(acc) + ' m';
-    gpsDot.className = 'dot ok';
-    try {
-      var r = await fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json');
-      var d = await r.json();
-      var addr = d.address || {};
-      document.getElementById('gpsAddr').textContent =
-        [addr.city || addr.town || addr.village, addr.state, addr.country].filter(Boolean).join(', ') || 'Unknown';
-      gpsCountry = addr.country || 'error';
-    } catch(e){
-      document.getElementById('gpsAddr').textContent = 'Reverse lookup failed';
-      gpsCountry = 'error';
-    }
-    checkMatch();
-  }, function(err){
-    var msg;
-    if(err.code === 1) msg = 'Permission denied — tap Request GPS below';
-    else if(err.code === 2) msg = 'Position unavailable — check your device GPS';
-    else if(err.code === 3) msg = 'Request timed out — try again';
-    else msg = 'Unknown error';
-    showGpsError(msg);
-    var btn = document.createElement('button');
-    btn.id = 'gpsBtn';
-    btn.textContent = 'Request GPS';
-    btn.onclick = requestGps;
-    gpsCard.appendChild(btn);
-  }, { enableHighAccuracy: true, timeout: 15000 });
+// First attempt — try GPS, fall back gracefully
+if(!navigator.geolocation){
+  setGpsError('Geolocation not supported by this browser.');
 } else {
-  gpsDot.className = 'dot err';
-  gpsCountry = 'error';
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var lat = pos.coords.latitude;
+    var lng = pos.coords.longitude;
+    var acc = pos.coords.accuracy;
+    document.getElementById('gpsLat').textContent = lat.toFixed(6);
+    document.getElementById('gpsLng').textContent = lng.toFixed(6);
+    document.getElementById('gpsAcc').textContent = '±' + Math.round(acc) + ' m';
+    gpsDot.className = 'dot ok';
+
+    fetch('https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng + '&format=json')
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var addr = d.address || {};
+        document.getElementById('gpsAddr').textContent =
+          [addr.city || addr.town || addr.village, addr.state, addr.country].filter(Boolean).join(', ') || 'Unknown';
+        gpsCountry = addr.country || null;
+        gpsDone = true;
+        checkMatch();
+      })
+      .catch(function(){
+        document.getElementById('gpsAddr').textContent = 'Reverse lookup failed';
+        gpsDone = true;
+        checkMatch();
+      });
+  }, function(err){
+    var msg;
+    if(err.code === 1) msg = 'Permission denied. Click Request GPS and allow location access when prompted.';
+    else if(err.code === 2) msg = 'Position unavailable. Your device may not have GPS hardware, or location services are off.';
+    else if(err.code === 3) msg = 'Request timed out. Try again.';
+    else msg = 'Unknown error (code ' + err.code + ').';
+    setGpsError(msg);
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 
-// --- IP ---
+// IP lookup — always runs
 fetch('https://ipapi.co/json/')
   .then(function(r){ return r.json(); })
   .then(function(d){
-    document.getElementById('ipAddr').textContent = d.ip || '\u2014';
-    document.getElementById('ipCity').textContent = d.city || '\u2014';
-    document.getElementById('ipRegion').textContent = d.region || '\u2014';
-    document.getElementById('ipCountry').textContent = d.country_name || '\u2014';
-    document.getElementById('ipOrg').textContent = d.org || '\u2014';
+    document.getElementById('ipAddr').textContent = d.ip || '—';
+    document.getElementById('ipCity').textContent = d.city || '—';
+    document.getElementById('ipRegion').textContent = d.region || '—';
+    document.getElementById('ipCountry').textContent = d.country_name || '—';
+    document.getElementById('ipOrg').textContent = d.org || '—';
     ipDot.className = 'dot ok';
-    ipCountry = d.country_name || 'error';
+    ipCountry = d.country_name || null;
+    ipDone = true;
     checkMatch();
   })
   .catch(function(){
     ipDot.className = 'dot err';
     document.getElementById('ipAddr').textContent = 'Lookup failed';
-    ipCountry = 'error';
+    ipDone = true;
     checkMatch();
   });
+
+})();
 </script>
 
 </body>
